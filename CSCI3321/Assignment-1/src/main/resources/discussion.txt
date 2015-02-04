@@ -1,0 +1,37 @@
+
+
+For this project, my personal implementation of cosh() was very helpful for examining the effects of rounding.
+This implementation allowed me to view the actual results with a much higher precision.
+
+I can conclude that for many of the increments, the value/display of the floating point calculation was dubious,
+and after a certain point will no longer continue to approach the correct value.
+Even for earlier calculations, the floating point was displaying 10-30% difference when comparing the
+distance-from-1 to the more accurate decimal method, although this made it closer to the actual value by truncating down.
+
+
+Following is based on a limit far lower than 2e-12:
+
+Additional observations include a point where the floating point value fell over significantly.
+This was the same point that it became obvious the number provided in the directions was truncated or rounded, such that, it was lower than the actual value that yields cosh(x)=1
+
+h       =2.22e-16 ==>
+decimal Δ2.22e-16: 1.0000000000000001213249475469292624067310345607625381423073952064611348925436972378373666123617927168
+double  Δ1.21e-16: 2.0
+h       =1.11e-16 ==>
+decimal Δ1.11e-16: 1.0000000000000000428203246127405046747772861216289896473559216730014171014185797104476740867852337152
+double  Δ4.28e-17: 2.0
+h       =5.55e-17 ==>
+decimal Δ5.55e-17: 1.0000000000000000035680131456461273495443674118510545364613080910215592261026938222992974441070198784
+double  Δ3.57e-18: 4.0
+h       =2.78e-17 ==>
+decimal Δ2.78e-17: 0.9999999999999999839418574120989390721138969344092703061385677841816132266659062354834663393321811968
+double  Δ-1.61e-17: 0.0
+
+... Highest confidence value assessed, given the input:
+
+h       =1.07e-50 ==>
+decimal Δ1.07e-50: 0.9999999999999999643157016785517510514740857
+
+After this, the values in my accurate method started to change direction.
+I expect this is indicative of the sequence used for the cosh function needing a more accuracy when using a delta that has 50 zeros after the decimal.
+To test this further, I would implement a cosh function that delays divisions to a single, final one, by using mathematical methods to add fractions.
