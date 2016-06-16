@@ -16,7 +16,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
 import java.math.BigInteger;
 import java.util.*;
 import java.util.function.Function;
@@ -25,6 +24,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 public class MainAssignment1 implements Runnable {
 
@@ -97,7 +97,7 @@ public class MainAssignment1 implements Runnable {
 	}
 
 	public void run() {
-		for (State state : start(AATM.getInstance()));
+		for (State ignored : start(AATM.getInstance()));
 	}
 
 	State startMenu(final AATM aatm) {
@@ -166,68 +166,52 @@ public class MainAssignment1 implements Runnable {
 		};
 	}
 
-	State makeWithdrawal(final AATM aatm, Function<AATM, State> nextState, Optional<DayDate> date, Optional<BigInteger> amount) {
+	State makeWithdrawal(final AATM aatm, final Function<AATM, State> nextState, final Optional<DayDate> date, final Optional<BigInteger> amount) {
 		return () -> {
 			final BigInteger HUNDRED = BigInteger.valueOf(100);
-			if (!date.isPresent()) {
-				final BigInteger[] balance = aatm.getBalanceAsOf(new DayDate(Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE)).divideAndRemainder(HUNDRED);
-				if (balance[0].max(balance[1]).compareTo(BigInteger.ZERO) <= 0) {
-					stdOut.println("Not enough balance to make a withdrawal.");
-					return nextState.apply(aatm);
-				}
-				return grabDate(d -> makeWithdrawal(aatm, nextState, d, amount), "Making withdrawal on a specific date.");
-			}
-			final Map.Entry<DayDate, BigInteger> minima = aatm.getMinimaAfter(date.get());
-			final BigInteger[] dollarsCents = aatm.getBalanceAsOf(date.get()).divideAndRemainder(HUNDRED);
-			final BigInteger[] dollarsCentsMinima = minima.getValue().divideAndRemainder(HUNDRED);
-			if (minima.getValue().compareTo(BigInteger.ZERO) <= 0) {
-				stdOut.println(String.format(
-						"You cannot make a withdrawal on %d/%02d/%04d with %d.%02d available.",
-						date.get().getMonth() + 1,
-						date.get().getDay() + 1,
-						date.get().getYear(),
-						dollarsCents[0],
-						dollarsCents[1]
-						));
-				if (!minima.getKey().equals(date.get()) && dollarsCents[0].max(dollarsCents[1]).compareTo(BigInteger.ZERO) > 0) {
-					stdOut.println(String.format(
-							"On %d/%02d/%04d there would result in a discontinuity as there is no money available.",
-							minima.getKey().getMonth() + 1,
-							minima.getKey().getDay() + 1,
-							minima.getKey().getYear()
-							));
-				}
+			final BigInteger balance = aatm.getBalanceAsOf(DayDate.getMaxDate());
+			final BigInteger[] balanceDollarsCents = balance.divideAndRemainder(HUNDRED);
+			if (balance.compareTo(BigInteger.ZERO) <= 0) {
+				stdOut.println("Not enough balance to make a withdrawal.");
 				return nextState.apply(aatm);
 			}
 			if (!amount.isPresent()) {
 				return grabAmount(
 						a -> {
-							if (a.isPresent() && a.get().compareTo(minima.getValue()) > 0) {
-								BigInteger[] token = a.get().divideAndRemainder(HUNDRED);
+							if (a.isPresent() && a.get().compareTo(balance) > 0) {
+								final BigInteger[] token = a.get().divideAndRemainder(HUNDRED);
 								displayBadEntry(String.format("%d.%02d", token[0], token[1]));
 								return makeWithdrawal(aatm, nextState, date, amount);
 							}
 							return makeWithdrawal(aatm, nextState, date, a);
 						},
 						String.format(
-								"Making withdrawal on %d/%02d/%04d with %d.%02d available.",
-								date.get().getMonth() + 1,
-								date.get().getDay(),
-								date.get().getYear(),
-								dollarsCents[0],
-								dollarsCents[1]
-								),
-						String.format(
-								minima.equals(date.get())
-									? "Full funds available."
-									: "Maximum possible withdrawal of %d.%02d from %d/%02d/%04d continuity.",
-								dollarsCentsMinima[0],
-								dollarsCentsMinima[1],
-								minima.getKey().getMonth() + 1,
-								minima.getKey().getDay(),
-								minima.getKey().getYear()
-								)
+								"Total balance available for withdrawal is %d.%02d.",
+								balanceDollarsCents[0], balanceDollarsCents[1]
+						)
+				);
+			}
+			final BigInteger[] dollarsCentsAmount = amount.get().divideAndRemainder(HUNDRED);
+			if (!date.isPresent()) {
+				return grabDate(
+						d -> makeWithdrawal(aatm, nextState, d, amount),
+						String.format("Making %d.%02d withdrawal on a specific date.", dollarsCentsAmount[0], dollarsCentsAmount[1])
 						);
+			}
+			final Map.Entry<DayDate, BigInteger> minima = aatm.getMinimaAfter(date.get());
+			if (minima.getValue().compareTo(amount.get()) < 0) {
+				final BigInteger[] dollarsCentsOverdraft = minima.getValue().subtract(amount.get()).negate().divideAndRemainder(HUNDRED);
+				stdOut.println(String.format(
+						"A withdrawal on %d/%02d/%04d of %d.%02d resulted in overdraft of %d.%02d on %d/%02d/%04d.",
+						date.get().getMonth() + 1,
+						date.get().getDay(),
+						date.get().getYear(),
+						dollarsCentsAmount[0], dollarsCentsAmount[1],
+						dollarsCentsOverdraft[0], dollarsCentsOverdraft[1],
+						minima.getKey().getMonth() + 1,
+						minima.getKey().getDay(),
+						minima.getKey().getYear()
+						));
 			}
 			return nextState.apply(aatm.withWithdraw(date.get(), amount.get()).get());
 		};
@@ -254,9 +238,9 @@ public class MainAssignment1 implements Runnable {
 			final String token = next();
 			switch (parseInt(token).orElse(0)) {
 				case 1:
-					return filterDate(aatm, complexMenu(aatm), Optional.empty());
+					return filterForDate(aatm, complexMenu(aatm), Optional.empty());
 				case 2:
-					return filter(
+					return filterAndPrint(
 							aatm, complexMenu(aatm),
 							t -> t.getType() == AATM.Transaction.Type.DEPOSIT,
 							() ->
@@ -267,7 +251,7 @@ public class MainAssignment1 implements Runnable {
 							true, true, true
 							);
 				case 3:
-					return filter(
+					return filterAndPrint(
 							aatm, complexMenu(aatm),
 							t -> t.getType() == AATM.Transaction.Type.WITHDRAWAL,
 							() ->
@@ -278,7 +262,7 @@ public class MainAssignment1 implements Runnable {
 							true, true, true
 							);
 				case 4:
-					return filter(
+					return filterAndPrint(
 							aatm, complexMenu(aatm),
 							t -> t.getType() == AATM.Transaction.Type.INQUIRY,
 							() ->
@@ -289,7 +273,7 @@ public class MainAssignment1 implements Runnable {
 							true, true, false
 							);
 				case 5:
-					return filter(
+					return filterAndPrint(
 							aatm, complexMenu(aatm),
 							o -> true,
 							() ->
@@ -308,13 +292,13 @@ public class MainAssignment1 implements Runnable {
 		};
 	}
 
-	State filter(final AATM aatm, final State nextState, final Predicate<AATM.Transaction> condition, final State failure, boolean includeDate, boolean includeType, boolean includeAmount) {
+	State filterAndPrint(final AATM aatm, final State nextState, final Predicate<AATM.Transaction> condition, final State failure, boolean includeDate, boolean includeType, boolean includeAmount) {
 		return () -> aatm.getFilteredMessages(condition, includeDate, includeType, includeAmount).map(tuple -> print(1, tuple, nextState)).orElse(failure);
 	}
 
 	State grabDate(final Function<Optional<DayDate>, State> nextState, String...messages) {
 		return () -> {
-			stdOut.println(messages);
+			stdOut.println((Object[]) messages);
 			stdOut.println("Please enter date as MMDD or MDD:");
 
 			final String token = next();
@@ -329,7 +313,7 @@ public class MainAssignment1 implements Runnable {
 
 	State grabAmount(final Function<Optional<BigInteger>, State> nextState, String...messages) {
 		return () -> {
-			stdOut.println(messages);
+			stdOut.println((Object[]) messages);
 			stdOut.println("Please enter amount as dollars with cents like 0.00:");
 
 			final String token = next();
@@ -350,11 +334,11 @@ public class MainAssignment1 implements Runnable {
 		};
 	}
 
-	State filterDate(final AATM aatm, final State nextState, final Optional<DayDate> date) {
+	State filterForDate(final AATM aatm, final State nextState, final Optional<DayDate> date) {
 		return () -> {
 			if (!date.isPresent())
-				return grabDate(d -> filterDate(aatm, nextState, d), "Displaying transactions for a specific date.");
-			return filter(
+				return grabDate(d -> filterForDate(aatm, nextState, d), "Displaying transactions for a specific date.");
+			return filterAndPrint(
 					aatm,
 					nextState, t -> t.getDate().equals(date.get()),
 					() ->
@@ -432,6 +416,11 @@ public class MainAssignment1 implements Runnable {
 	}
 }
 
+/**
+ * Data class with no built-in verification.
+ * The purpose of this class is to store a (year,month,day) tuple
+ * with no inclination that it respects a time during that day.
+ */
 final class DayDate implements Comparable<DayDate> {
 	public static int compare(DayDate l, DayDate r) {
 		return l.getYear() != r.getYear()
@@ -440,6 +429,14 @@ final class DayDate implements Comparable<DayDate> {
 					? Integer.compare(l.getMonth(), r.getMonth())
 				: Integer.compare(l.getDay(), r.getDay())
 				;
+	}
+
+	public static DayDate getMaxDate() {
+		return new DayDate(Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE);
+	}
+
+	public static DayDate getMinDate() {
+		return new DayDate(Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE);
 	}
 
 	private final int year, month, day;
@@ -493,6 +490,9 @@ final class DayDate implements Comparable<DayDate> {
 }
 
 class AATM {
+	/**
+	 * Data class used only to store the (date,type,amount) tuple.
+	 */
 	public static final class Transaction {
 		public enum Type {
 			DEPOSIT("Deposit"),
@@ -581,7 +581,7 @@ class AATM {
 	}
 
 	public Optional<AATM> withWithdraw(final DayDate date, final BigInteger amount) {
-		if (getMinimaAfter(date).getValue().compareTo(amount) < 0)
+		if (getBalanceAsOf(new DayDate(Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE)).compareTo(amount) < 0)
 			return Optional.empty();
 		final List<Transaction> transactions = new ArrayList<>(this.transactions);
 		transactions.add(new Transaction(date, Transaction.Type.WITHDRAWAL, Optional.of(amount)));
@@ -601,7 +601,7 @@ class AATM {
 				TRANSACTION_AFTER_TARGET  = 2;
 		BigInteger rollingBalance = BigInteger.ZERO;
 		BigInteger lowestBalance = BigInteger.ZERO;
-		DayDate previousDate = new DayDate(Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE);
+		DayDate previousDate = DayDate.getMinDate();
 		DayDate lowestDate = null;
 		final Iterator<Transaction> it = transactions.stream().filter(t -> t.getAmount().isPresent()).sorted(Comparator.comparing(Transaction::getDate, DayDate::compare)).iterator();
 		while (it.hasNext()) {
@@ -613,6 +613,7 @@ class AATM {
 					) {
 				case PREV_BEFORE_TRANSACTION + PREV_BEFORE_TARGET + TRANSACTION_AFTER_TARGET:  // p < r, p < a, r > a [ p a r ]
 				case PREV_BEFORE_TRANSACTION + PREV_AT_TARGET + TRANSACTION_AFTER_TARGET:      // p < r, p = a, r > a [ p=a r ]
+					// We're now passing the target!
 					lowestBalance = rollingBalance;
 					lowestDate = date;
 					previousDate = transaction.getDate();
@@ -620,10 +621,13 @@ class AATM {
 
 				case PREV_BEFORE_TRANSACTION + PREV_BEFORE_TARGET + TRANSACTION_BEFORE_TARGET: // p < r, p < a, r < a [ p r a ]
 				case PREV_BEFORE_TRANSACTION + PREV_BEFORE_TARGET + TRANSACTION_AT_TARGET:     // p < r, p < a, r = a [ p r=a ]
+					// Yet to reach target, but we advanced to a new day.
 					previousDate = transaction.getDate();
 					break;
 
 				case PREV_BEFORE_TRANSACTION + PREV_AFTER_TARGET + TRANSACTION_AFTER_TARGET:   // p < r, p > a, r > a [ a p r ]
+					// We advanced to a new day, but we passed the target a while ago.
+					// Make sure the lowest is accurate.
 					if (lowestBalance.compareTo(rollingBalance) > 0) {
 						lowestDate = previousDate;
 						lowestBalance = rollingBalance;
@@ -634,6 +638,8 @@ class AATM {
 				case PREV_AT_TRANSACTION + PREV_BEFORE_TARGET + TRANSACTION_BEFORE_TARGET:     // p = r, p < a, r < a [ p=r a ]
 				case PREV_AT_TRANSACTION + PREV_AT_TARGET + TRANSACTION_AT_TARGET:             // p = r, p = a, r = a [ p=r=a ]
 				case PREV_AT_TRANSACTION + PREV_AFTER_TARGET + TRANSACTION_AFTER_TARGET:       // p = r, p > a, r > a [ a p=r ]
+					// Another transaction for today but,
+					// we only do checks once all transactions for the day are processed.
 					break;
 
 				// Fail-fast cases! These violate transitivity.
@@ -818,7 +824,7 @@ interface Writable {
 		Arrays.stream(objs).forEach(this::println);
 	}
 
-	default void println(List<?> objs) {
-		objs.stream().forEach(this::println);
+	default void println(Iterable<?> objs) {
+		StreamSupport.stream(objs.spliterator(), false).forEach(this::println);
 	}
 }
